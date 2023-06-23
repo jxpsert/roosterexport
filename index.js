@@ -1,25 +1,32 @@
 const fs = require("fs");
+const crypto = require("crypto");
 const pdfte = require("pdf-table-extractor");
 const ics = require("ics");
-const crypto = require("crypto");
 
+// Settings
 const input_dir = "./input";
 const output_dir = "./output";
 
+// Read all files in input directory
 const files = fs.readdirSync(input_dir);
+console.log(`Found ${files.length} file(s) in ${input_dir}`);
 
+// Convenience method
 Date.prototype.addHours = function (h) {
   this.setTime(this.getTime() + h * 60 * 60 * 1000);
   return this;
 };
 
+// Main functionality
 files.forEach((file) => {
-  if (!file.toLowerCase().endsWith(".pdf")) return;
+  if (!file.toLowerCase().endsWith(".pdf")) return; // Only handling pdfs
 
   const input_path = `${input_dir}/${file}`;
 
+  console.log(`Reading ${file}...`);
+
   let events = [];
-  let hours = 0;
+  let hours = 0; // This is here to make sure all shifts were added; if this is not equal to the total hours in the pdf, something went wrong
 
   pdfte(
     input_path,
@@ -28,8 +35,9 @@ files.forEach((file) => {
       const tables = result.pageTables[0].tables;
       for (let i = 4; i < tables.length - 1; i++) {
         const table = tables[i];
+
         const date = table[0];
-        const formattedDate = date.split("-").reverse().join("-");
+        const formattedDate = date.split("-").reverse().join("-"); // Input is dd-mm-yyyy, output is yyyy-mm-dd
         const garage = table[2].replace(" garage", "");
         if (!garage) continue;
 
@@ -41,26 +49,28 @@ files.forEach((file) => {
 
         const endDateTime = new Date(datestring).addHours(duration);
 
-        // prepare vars for ics
-        const startYear = startDateTime.getFullYear();
-        const startMonth = startDateTime.getMonth() + 1;
-        const startDay = startDateTime.getDate();
-        const startHour = startDateTime.getHours();
-        const startMinute = startDateTime.getMinutes();
-
-        const endYear = endDateTime.getFullYear();
-        const endMonth = endDateTime.getMonth() + 1;
-        const endDay = endDateTime.getDate();
-        const endHour = endDateTime.getHours();
-        const endMinute = endDateTime.getMinutes();
+        const startDT = [
+          startDateTime.getFullYear(),
+          startDateTime.getMonth() + 1,
+          startDateTime.getDate(),
+          startDateTime.getHours(),
+          startDateTime.getMinutes(),
+        ];
+        const endDT = [
+          endDateTime.getFullYear(),
+          endDateTime.getMonth() + 1,
+          endDateTime.getDate(),
+          endDateTime.getHours(),
+          endDateTime.getMinutes(),
+        ];
 
         const event = {
           productId: "roosterexport",
           uid: crypto.randomUUID(),
           startInputType: "local",
           startOutputType: "local",
-          start: [startYear, startMonth, startDay, startHour, startMinute],
-          end: [endYear, endMonth, endDay, endHour, endMinute],
+          start: startDT,
+          end: endDT,
           title: garage,
         };
 
@@ -70,14 +80,19 @@ files.forEach((file) => {
         if (i == tables.length - 2) {
           ics.createEvents(events, (error, value) => {
             if (error) {
-              console.log(error);
+              console.error(error);
               return;
+            }
+            if (!fs.existsSync(output_dir)) {
+              // Making sure the output directory exists
+              console.log("Output directory does not exist, creating it...");
+              fs.mkdirSync(output_dir);
             }
             fs.writeFileSync(output_file, value);
 
             console.log(
               `Read ${hours} hours of shifts from ${file} and wrote to ${output_file}`
-            );
+            ); // Logging the amount of hours read from the pdf for verification
           });
         }
       }
